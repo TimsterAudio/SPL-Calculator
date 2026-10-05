@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Loudspeaker SPL calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E4E6E3; --panel:#F5F6F3; --ink:#1E2B33; --muted:#56646C; --line:#C4C9C4;
+  --field:#FFFFFF; --meter:#F1E2B4; --meter-ink:#3A3020; --needle:#B3261E; --hot:#C8553D;
+  --accent:#2F6A7E; --warn-bg:#FBE9D0; --warn-ink:#7A3E00;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1A2126; --panel:#232C32; --ink:#E6EAE7; --muted:#9AA6AC; --line:#3A4750;
+    --field:#1C2429; --meter:#E9D49A; --meter-ink:#3A3020; --needle:#C8321F; --hot:#D0654B;
+    --accent:#6FB3C8; --warn-bg:#3D2E1A; --warn-ink:#F2C98A;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1A2126; --panel:#232C32; --ink:#E6EAE7; --muted:#9AA6AC; --line:#3A4750;
+  --field:#1C2429; --meter:#E9D49A; --meter-ink:#3A3020; --needle:#C8321F; --hot:#D0654B;
+  --accent:#6FB3C8; --warn-bg:#3D2E1A; --warn-ink:#F2C98A;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Barlow Semi Condensed","Arial Narrow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:17px; line-height:1.45; font-variant-numeric:tabular-nums;
+}
+main{max-width:1080px; margin:0 auto; padding:28px 20px 48px}
+header h1{font-size:2.1rem; font-weight:700; margin:0; letter-spacing:-.01em; line-height:1.1}
+header p{margin:.35rem 0 0; color:var(--muted); max-width:62ch}
+
+.layout{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); gap:22px; margin-top:24px; align-items:start}
+@media (max-width:820px){ .layout{grid-template-columns:1fr} }
+
+.panel{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:18px 18px 20px}
+.panel + .panel{margin-top:16px}
+h2{font-size:1.15rem; font-weight:600; margin:0 0 12px}
+
+.seg{display:inline-flex; border:1px solid var(--line); border-radius:4px; overflow:hidden}
+.seg label{position:relative; cursor:pointer}
+.seg input{position:absolute; opacity:0; inset:0; cursor:pointer}
+.seg span{display:block; padding:6px 16px; font-weight:500}
+.seg label + label span{border-left:1px solid var(--line)}
+.seg input:checked + span{background:var(--accent); color:var(--panel)}
+.seg input:focus-visible + span{outline:2px solid var(--accent); outline-offset:-4px}
+
+.grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 14px}
+.field{display:flex; flex-direction:column; gap:4px}
+.field.wide{grid-column:1 / -1}
+.field label{font-size:.95rem; font-weight:500}
+.field small{color:var(--muted); font-size:.85rem}
+input[type=number], select{
+  font:inherit; color:var(--ink); background:var(--field);
+  border:1px solid var(--line); border-radius:4px; padding:7px 9px; width:100%;
+}
+input[type=number]:focus-visible, select:focus-visible, input[type=checkbox]:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.unit{position:relative}
+.unit input{padding-right:3.4em}
+.unit b{position:absolute; right:10px; top:50%; transform:translateY(-50%); font-weight:400; color:var(--muted); pointer-events:none}
+.check{display:flex; align-items:center; gap:8px; margin:0 0 12px; font-weight:500}
+.check input{width:18px; height:18px; accent-color:var(--accent)}
+.is-disabled{opacity:.5}
+[hidden]{display:none !important}
+
+/* Meter */
+.meter-wrap{background:var(--meter); color:var(--meter-ink); border-radius:6px; padding:14px 14px 6px; box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+.meter-wrap svg{display:block; width:100%; height:auto}
+.needle{transform-origin:200px 200px; transition:transform .45s cubic-bezier(.3,1.4,.5,1)}
+@media (prefers-reduced-motion:reduce){ .needle{transition:none} }
+.readout{display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:14px}
+.readout .big{font-size:3.4rem; font-weight:700; line-height:1}
+.readout .big small{font-size:1.2rem; font-weight:500; margin-left:6px; color:var(--muted)}
+.readout .desc{color:var(--muted); text-align:right; max-width:28ch}
+
+table{width:100%; border-collapse:collapse; margin-top:4px}
+td{padding:6px 0; border-bottom:1px solid var(--line)}
+td.num{text-align:right; white-space:nowrap}
+tr.total td{font-weight:700; border-bottom:none; border-top:2px solid var(--ink)}
+.ladder-scroll{overflow-x:auto}
+.ladder{min-width:420px}
+.ladder th{font-weight:500; color:var(--muted); text-align:right; padding:4px 0 6px; border-bottom:1px solid var(--line)}
+.ladder td{text-align:right}
+.ladder th:first-child,.ladder td:first-child{text-align:left}
+
+.warn{background:var(--warn-bg); color:var(--warn-ink); border-radius:4px; padding:8px 10px; margin-top:12px; font-size:.95rem}
+.target-row{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr); gap:14px; align-items:end}
+.target-out{font-size:1.05rem}
+.target-out strong{font-size:1.35rem}
+:root{--bass-needle:#2F5D6E}
+.legend{margin:10px 0 0; color:var(--muted); font-size:.88rem}
+.bassline{margin-top:12px; padding-top:12px; border-top:1px solid var(--line)}
+.bassline strong{font-size:1.35rem}
+.bassline p{margin:.3rem 0 0; color:var(--muted); font-size:.92rem}
+details{margin-top:18px; color:var(--muted); font-size:.95rem}
+details summary{cursor:pointer; color:var(--ink); font-weight:500}
+details p{max-width:70ch}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Loudspeaker SPL calculator</h1>
+    <p>Estimate the sound pressure level at the listening position from one or two loudspeakers, based on sensitivity, amplifier power and distance.</p>
+  </header>
+
+  <div class="layout">
+    <!-- Inputs -->
+    <div>
+      <section class="panel">
+        <h2>Number of loudspeakers</h2>
+        <div class="seg" role="radiogroup" aria-label="Number of loudspeakers">
+          <label><input type="radio" name="count" value="1"><span>One</span></label>
+          <label><input type="radio" name="count" value="2" checked><span>Two</span></label>
+        </div>
+      </section>
+
+      <section class="panel" id="spkA">
+        <h2 id="spkA-title">Speaker A</h2>
+        <div class="grid">
+          <div class="field">
+            <label for="sA">Sensitivity</label>
+            <div class="unit"><input id="sA" type="number" step="0.5" value="88"><b>dB</b></div>
+            <small>SPL at 1 W / 1 m</small>
+          </div>
+          <div class="field">
+            <label for="pA">Amplifier power</label>
+            <div class="unit"><input id="pA" type="number" step="any" min="0" value="100"><b>W</b></div>
+            <small>Power delivered to this speaker</small>
+          </div>
+          <div class="field">
+            <label for="dA">Listening distance</label>
+            <div class="unit"><input id="dA" type="number" step="0.1" min="0" value="3"><b>m</b></div>
+          </div>
+          <div class="field">
+            <label for="rA">Power rating <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+            <div class="unit"><input id="rA" type="number" step="any" min="0" placeholder="—"><b>W</b></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="spkB">
+        <h2>Speaker B</h2>
+        <label class="check"><input id="same" type="checkbox" checked> Same as speaker A</label>
+        <div class="grid" id="gridB">
+          <div class="field">
+            <label for="sB">Sensitivity</label>
+            <div class="unit"><input id="sB" type="number" step="0.5" value="88"><b>dB</b></div>
+            <small>SPL at 1 W / 1 m</small>
+          </div>
+          <div class="field">
+            <label for="pB">Amplifier power</label>
+            <div class="unit"><input id="pB" type="number" step="any" min="0" value="100"><b>W</b></div>
+            <small>Power delivered to this speaker</small>
+          </div>
+          <div class="field">
+            <label for="dB">Listening distance</label>
+            <div class="unit"><input id="dB" type="number" step="0.1" min="0" value="3"><b>m</b></div>
+          </div>
+          <div class="field">
+            <label for="rB">Power rating <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+            <div class="unit"><input id="rB" type="number" step="any" min="0" placeholder="—"><b>W</b></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Room and summing</h2>
+        <div class="grid">
+          <div class="field">
+            <label for="xs">Wall behind the speakers</label>
+            <div class="unit"><input id="xs" type="number" step="0.05" min="0" value="0.6"><b>m</b></div>
+            <small>From the woofer to the wall. Leave blank if none.</small>
+          </div>
+          <div class="field">
+            <label for="xl">Wall behind the listener <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+            <div class="unit"><input id="xl" type="number" step="0.05" min="0" placeholder="No wall"><b>m</b></div>
+            <small>From your ears to the wall</small>
+          </div>
+          <div class="field">
+            <label for="wall">Wall construction</label>
+            <select id="wall">
+              <option value="0.05">Solid masonry or concrete</option>
+              <option value="0.25" selected>Plasterboard or timber</option>
+              <option value="0.6">Acoustically treated</option>
+            </select>
+            <small>How much bass the walls absorb</small>
+          </div>
+          <div class="field" id="sumField">
+            <label for="sum">How the two speakers add</label>
+            <select id="sum">
+              <option value="power" selected>Uncorrelated / stereo (power sum)</option>
+              <option value="coherent">Same signal, in phase (pressure sum)</option>
+            </select>
+            <small>Two equal speakers: +3 dB or +6 dB</small>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Results -->
+    <div>
+      <section class="panel">
+        <h2>SPL at the listening position</h2>
+        <div class="meter-wrap">
+          <svg viewBox="0 0 400 225" role="img" aria-labelledby="meterLabel">
+            <title id="meterLabel">SPL meter</title>
+            <g id="scale"></g>
+            <g class="needle" id="needleBass">
+              <line x1="200" y1="200" x2="200" y2="60" stroke="var(--bass-needle)" stroke-width="2.5" stroke-dasharray="7 4" stroke-linecap="round"/>
+            </g>
+            <g class="needle" id="needle">
+              <line x1="200" y1="200" x2="200" y2="42" stroke="var(--needle)" stroke-width="2.5" stroke-linecap="round"/>
+            </g>
+            <circle cx="200" cy="200" r="9" fill="var(--meter-ink)"/>
+            <text x="200" y="160" text-anchor="middle" font-size="15" font-weight="600" fill="var(--meter-ink)" font-family="inherit">dB SPL</text>
+          </svg>
+        </div>
+        <div class="readout">
+          <div class="big" id="total" aria-live="polite">—<small>dB</small></div>
+          <div class="desc" id="loudness"></div>
+        </div>
+        <p class="legend">Red needle: overall level (midrange and treble). Dashed needle: bass region, including wall reinforcement.</p>
+        <div class="bassline" id="bass"></div>
+        <div id="errors"></div>
+        <div id="warnings"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Power needed for a target level</h2>
+        <div class="target-row">
+          <div class="field">
+            <label for="target">Target SPL</label>
+            <div class="unit"><input id="target" type="number" step="1" value="105"><b>dB</b></div>
+          </div>
+          <div class="target-out" id="targetOut"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>How it adds up</h2>
+        <table id="breakdown"></table>
+      </section>
+
+      <section class="panel">
+        <h2>At other distances</h2>
+        <div class="ladder-scroll"><table class="ladder" id="ladder"></table></div>
+      </section>
+
+
+      <details>
+        <summary>Formulas and assumptions</summary>
+        <p>Direct sound from each speaker: SPL = sensitivity + 10·log₁₀(power) − 20·log₁₀(distance). Distance loss follows the inverse-square law (−6 dB per doubling).</p>
+        <p>Walls are modelled as mirror-image sources. A wall x metres behind the speaker or listener adds a reflection whose path is 2x longer, weakened by the wall’s absorption. In the bass the speaker radiates in all directions and the reflections arrive nearly in phase, so they add as pressure (up to about +6 dB per wall when very close). In the midrange and treble the speaker beams forward, so only the wall behind the listener contributes, and it adds as energy. The bass boost only holds well below the first cancellation dip, at 343 ÷ (4 × x) Hz. Side walls, floor, ceiling and room modes are not included, so real rooms usually measure a few dB louder, especially at longer distances.</p>
+        <p>Two speakers, power sum: 10·log₁₀(10^(L₁/10) + 10^(L₂/10)). Pressure sum: 20·log₁₀(10^(L₁/20) + 10^(L₂/20)). Pressure summing only applies when both play the same signal and arrive in phase, which is realistic at low frequencies or on the centre line for mono content.</p>
+        <p>Results are continuous (sine-wave-equivalent) levels at full rated amplifier output, ignoring power compression, which can cost 1–3 dB or more near a driver's limits. Music peaks will sit above average levels by the signal's crest factor.</p>
+      </details>
+    </div>
+  </div>
+</main>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const MIN = 60, MAX = 140; // meter range, dB SPL
+  const ANG = 62;            // half-angle of the meter scale, degrees
+  const C = 343;             // speed of sound, m/s
+
+  // ---- Build meter scale ----
+  (function buildScale(){
+    const g = $('scale'), cx = 200, cy = 200, r = 165;
+    const ns = 'http://www.w3.org/2000/svg';
+    const toXY = (deg, rad) => {
+      const a = (deg - 90) * Math.PI / 180;
+      return [cx + rad * Math.cos(a), cy + rad * Math.sin(a)];
+    };
+    const angFor = v => -ANG + (v - MIN) / (MAX - MIN) * 2 * ANG;
+    // hot zone arc from 115 dB up
+    const a1 = angFor(115), a2 = angFor(MAX);
+    const [x1,y1] = toXY(a1, r), [x2,y2] = toXY(a2, r);
+    const hot = document.createElementNS(ns,'path');
+    hot.setAttribute('d', `M${x1} ${y1} A${r} ${r} 0 0 1 ${x2} ${y2}`);
+    hot.setAttribute('stroke','var(--hot)'); hot.setAttribute('stroke-width','8');
+    hot.setAttribute('fill','none'); hot.setAttribute('opacity','.75');
+    g.appendChild(hot);
+    // base arc
+    const [bx1,by1] = toXY(-ANG, r), [bx2,by2] = toXY(ANG, r);
+    const arc = document.createElementNS(ns,'path');
+    arc.setAttribute('d', `M${bx1} ${by1} A${r} ${r} 0 0 1 ${bx2} ${by2}`);
+    arc.setAttribute('stroke','var(--meter-ink)'); arc.setAttribute('stroke-width','1.5'); arc.setAttribute('fill','none');
+    g.appendChild(arc);
+    for (let v = MIN; v <= MAX; v += 2){
+      const major = v % 10 === 0;
+      const a = angFor(v);
+      const [ox,oy] = toXY(a, r), [ix,iy] = toXY(a, r - (major ? 14 : 7));
+      const t = document.createElementNS(ns,'line');
+      t.setAttribute('x1',ox); t.setAttribute('y1',oy); t.setAttribute('x2',ix); t.setAttribute('y2',iy);
+      t.setAttribute('stroke','var(--meter-ink)'); t.setAttribute('stroke-width', major ? '2' : '1');
+      g.appendChild(t);
+      if (major){
+        const [lx,ly] = toXY(a, r - 30);
+        const txt = document.createElementNS(ns,'text');
+        txt.setAttribute('x',lx); txt.setAttribute('y',ly + 5);
+        txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size','15');
+        txt.setAttribute('font-weight','600'); txt.setAttribute('fill','var(--meter-ink)');
+        txt.textContent = v;
+        g.appendChild(txt);
+      }
+    }
+    window.__angFor = angFor;
+  })();
+
+  const num = id => { const v = parseFloat($(id).value); return isFinite(v) ? v : NaN; };
+  const log10 = Math.log10;
+  const f1 = x => (Math.round(x * 10) / 10).toFixed(1);
+  const sgn = x => (x >= 0 ? '+' : '−') + f1(Math.abs(x));
+  const fmtW = w => w >= 100 ? Math.round(w).toLocaleString() : w >= 10 ? w.toFixed(1) : w >= 1 ? w.toFixed(2) : w.toFixed(3);
+
+  const spl = (s,p,d,g) => s + 10*log10(p) - 20*log10(d) + g;
+  const combine = (levels, mode) => {
+    if (levels.length === 1) return levels[0];
+    if (mode === 'coherent') return 20*log10(levels.reduce((a,l)=>a+Math.pow(10,l/20),0));
+    return 10*log10(levels.reduce((a,l)=>a+Math.pow(10,l/10),0));
+  };
+
+  // Image-source model: each wall adds a reflection whose path is 2x longer.
+  // Bass: speaker is omnidirectional and reflections arrive in phase -> pressure sum.
+  // Mid/treble: speaker beams forward, so only the wall behind the listener
+  // contributes, and it adds as energy (random phase).
+  function roomGains(d, R, xs, xl){
+    const rf = isFinite(xs) ? R * d / (d + 2*xs) : 0;
+    const rr = isFinite(xl) ? R * d / (d + 2*xl) : 0;
+    return { mid: 10*log10(1 + rr*rr), bass: 20*log10(1 + rf + rr) };
+  }
+
+  function describe(db){
+    if (db < 70)  return 'Quiet background listening';
+    if (db < 85)  return 'Normal to lively listening level';
+    if (db < 95)  return 'Loud listening; typical film reference territory';
+    if (db < 105) return 'Very loud; live-band level';
+    if (db < 115) return 'Concert level; hearing damage risk within minutes';
+    return 'Extreme; near the threshold of pain';
+  }
+
+  function syncB(){
+    const same = $('same').checked;
+    ['sB','pB','dB','rB'].forEach((id,i)=>{
+      const src = ['sA','pA','dA','rA'][i];
+      if (same) $(id).value = $(src).value;
+      $(id).disabled = same;
+    });
+    $('gridB').classList.toggle('is-disabled', same);
+  }
+
+  function count(){ return document.querySelector('input[name=count]:checked').value === '2' ? 2 : 1; }
+
+  function calc(){
+    const two = count() === 2;
+    $('spkB').hidden = !two;
+    $('sumField').hidden = !two;
+    $('spkA-title').textContent = two ? 'Speaker A' : 'Speaker';
+    syncB();
+
+    const R = Math.sqrt(1 - parseFloat($('wall').value)); // pressure reflection coefficient
+    const xs = num('xs'), xl = num('xl');
+    const mode = $('sum').value;
+    const spk = [{name:two?'A':'', s:num('sA'), p:num('pA'), d:num('dA'), r:num('rA')}];
+    if (two) spk.push({name:'B', s:num('sB'), p:num('pB'), d:num('dB'), r:num('rB')});
+
+    const errs = [];
+    spk.forEach(k=>{
+      const tag = two ? ` for speaker ${k.name}` : '';
+      if (!isFinite(k.s)) errs.push(`Enter a sensitivity${tag}.`);
+      if (!(k.p > 0)) errs.push(`Enter an amplifier power above 0 W${tag}.`);
+      if (!(k.d > 0)) errs.push(`Enter a listening distance above 0 m${tag}.`);
+    });
+    if (isFinite(xs) && xs < 0) errs.push('Wall distance behind the speakers can’t be negative.');
+    if (isFinite(xl) && xl < 0) errs.push('Wall distance behind the listener can’t be negative.');
+    $('errors').innerHTML = errs.length ? `<div class="warn">${errs.join('<br>')}</div>` : '';
+    if (errs.length){
+      $('total').innerHTML = '—<small>dB</small>'; $('loudness').textContent = ''; $('bass').innerHTML = '';
+      $('breakdown').innerHTML = ''; $('ladder').innerHTML = ''; $('targetOut').textContent = '';
+      $('warnings').innerHTML = '';
+      return;
+    }
+
+    spk.forEach(k => {
+      k.Ld = spl(k.s, k.p, k.d, 0);
+      const rg = roomGains(k.d, R, xs, xl);
+      k.gMid = rg.mid; k.gBass = rg.bass;
+      k.L = k.Ld + rg.mid; k.Lb = k.Ld + rg.bass;
+    });
+    const total = combine(spk.map(k=>k.L), mode);
+    const bassTotal = combine(spk.map(k=>k.Lb), 'coherent'); // bass is mostly mono
+
+    // Meter
+    const clamp = v => Math.max(MIN - 2, Math.min(MAX + 2, v));
+    $('needle').style.transform = `rotate(${window.__angFor(clamp(total))}deg)`;
+    $('needleBass').style.transform = `rotate(${window.__angFor(clamp(bassTotal))}deg)`;
+    $('total').innerHTML = `${f1(total)}<small>dB SPL</small>`;
+    $('loudness').textContent = describe(total);
+
+    // Bass readout with wall cancellation dips (first null where path difference = λ/2)
+    const nulls = [];
+    if (isFinite(xs) && xs > 0) nulls.push({f: C/(4*xs), where: 'the wall behind the speakers'});
+    if (isFinite(xl) && xl > 0) nulls.push({f: C/(4*xl), where: 'the wall behind you'});
+    const fLim = nulls.length ? Math.min(...nulls.map(n=>n.f)) / 2 : null;
+    let bassHtml = `Bass${fLim ? ' below about ' + Math.round(fLim) + ' Hz' : ''}: <strong>${f1(bassTotal)} dB SPL</strong>`;
+    if (nulls.length){
+      bassHtml += '<p>' + nulls.map(n => `Expect a dip near ${Math.round(n.f)} Hz from ${n.where}.`).join(' ') + '</p>';
+    } else if (!isFinite(xs) && !isFinite(xl)) {
+      bassHtml += '<p>No walls entered, so bass gets no reinforcement.</p>';
+    }
+    $('bass').innerHTML = bassHtml;
+
+    // Warnings
+    const warns = [];
+    spk.forEach(k=>{
+      if (k.r > 0 && k.p > k.r){
+        warns.push(`${two ? 'Speaker ' + k.name + ': a' : 'A'}mplifier power (${fmtW(k.p)} W) exceeds the power rating (${fmtW(k.r)} W). Continuous full power risks damage.`);
+      }
+    });
+    if (total > MAX) warns.push(`Result is above the meter's ${MAX} dB scale.`);
+    $('warnings').innerHTML = warns.map(w=>`<div class="warn">${w}</div>`).join('');
+
+    // Breakdown
+    let rows = '';
+    spk.forEach(k=>{
+      const pre = two ? `Speaker ${k.name}: ` : '';
+      rows += `<tr><td>${pre}sensitivity (1 W / 1 m)</td><td class="num">${f1(k.s)} dB</td></tr>`;
+      rows += `<tr><td>${pre}power gain, ${fmtW(k.p)} W</td><td class="num">${sgn(10*log10(k.p))} dB</td></tr>`;
+      rows += `<tr><td>${pre}distance, ${k.d} m</td><td class="num">${sgn(-20*log10(k.d))} dB</td></tr>`;
+      if (k.gMid > 0.05) rows += `<tr><td>${pre}reflection off wall behind you</td><td class="num">${sgn(k.gMid)} dB</td></tr>`;
+      rows += `<tr><td><strong>${two ? 'Speaker ' + k.name + ' alone' : 'Total'}</strong></td><td class="num"><strong>${f1(k.L)} dB</strong></td></tr>`;
+    });
+    if (two){
+      const loudest = Math.max(spk[0].L, spk[1].L);
+      rows += `<tr><td>Adding the second speaker (${mode === 'coherent' ? 'pressure' : 'power'} sum)</td><td class="num">${sgn(total - loudest)} dB</td></tr>`;
+      rows += `<tr class="total"><td>Combined</td><td class="num">${f1(total)} dB SPL</td></tr>`;
+    } else {
+      rows = rows.replace('<tr><td><strong>Total', '<tr class="total"><td><strong>Total');
+    }
+    rows += `<tr><td colspan="2" style="padding-top:18px;font-weight:600">Bass region</td></tr>`;
+    spk.forEach(k => {
+      const pre = two ? `Speaker ${k.name}: ` : '';
+      rows += `<tr><td>${pre}direct sound</td><td class="num">${f1(k.Ld)} dB</td></tr>`;
+      rows += `<tr><td>${pre}wall reinforcement</td><td class="num">${sgn(k.gBass)} dB</td></tr>`;
+    });
+    if (two){
+      const loudestB = Math.max(spk[0].Lb, spk[1].Lb);
+      rows += `<tr><td>Adding the second speaker (in phase)</td><td class="num">${sgn(bassTotal - loudestB)} dB</td></tr>`;
+    }
+    rows += `<tr class="total"><td>Bass total</td><td class="num">${f1(bassTotal)} dB SPL</td></tr>`;
+    $('breakdown').innerHTML = rows;
+
+    // Distance ladder (scales all distances together, relative to speaker A)
+    const refD = spk[0].d;
+    const dists = [1, 2, 3, 4, 6, 8, 12, 16].filter(x => x !== refD);
+    dists.push(refD); dists.sort((a,b)=>a-b);
+    let head = '<tr><th>Distance (m)</th>', body = '<tr><td>Overall (dB)</td>', bodyB = '<tr><td>Bass (dB)</td>';
+    const bold = (v, on) => on ? '<strong>' + v + '</strong>' : v;
+    dists.forEach(x=>{
+      const scale = x / refD;
+      const Lm = [], Lb = [];
+      spk.forEach(k => {
+        const dd = k.d * scale, Ld = spl(k.s, k.p, dd, 0), rg = roomGains(dd, R, xs, xl);
+        Lm.push(Ld + rg.mid); Lb.push(Ld + rg.bass);
+      });
+      const isRef = x === refD;
+      head += `<th>${isRef ? '<strong style="color:var(--ink)">' + x + '</strong>' : x}</th>`;
+      body += `<td>${bold(f1(combine(Lm, mode)), isRef)}</td>`;
+      bodyB += `<td>${bold(f1(combine(Lb, 'coherent')), isRef)}</td>`;
+    });
+    $('ladder').innerHTML = `<thead>${head}</tr></thead><tbody>${body}</tr>${bodyB}</tr></tbody>`
+      + (two && spk[0].d !== spk[1].d ? `<caption style="caption-side:bottom;text-align:left;color:var(--muted);font-size:.85rem;padding-top:6px">Distance shown for speaker A; speaker B keeps the same ratio.</caption>` : '');
+
+    // Target power
+    const T = num('target');
+    if (isFinite(T)){
+      const factor = Math.pow(10, (T - total) / 10);
+      const need = spk.map(k => k.p * factor);
+      let html;
+      if (two && !$('same').checked){
+        html = `Speaker A needs <strong>${fmtW(need[0])} W</strong>, speaker B <strong>${fmtW(need[1])} W</strong>`;
+      } else {
+        html = `<strong>${fmtW(need[0])} W</strong>${two ? ' per speaker' : ''}`;
+      }
+      const over = spk.some((k,i) => k.r > 0 && need[i] > k.r);
+      html += `<br><span style="color:var(--muted);font-size:.9rem">${T > total ? sgn(T-total) + ' dB above' : T < total ? sgn(T-total).replace('−','') + ' dB below' : 'equal to'} the current level${over ? '; exceeds the speaker power rating' : ''}</span>`;
+      $('targetOut').innerHTML = html;
+    } else {
+      $('targetOut').textContent = 'Enter a target level.';
+    }
+  }
+
+  document.querySelectorAll('input, select').forEach(el=>{
+    el.addEventListener('input', calc);
+    el.addEventListener('change', calc);
+  });
+  calc();
+})();
+</script>
+</body>
+</html>
